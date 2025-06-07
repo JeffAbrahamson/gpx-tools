@@ -1,0 +1,17 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+WORKDIR /app
+
+COPY requirements.txt /app/
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
+
+# Adding npm is ridiculously heavy, so only do this in the test
+# Dockerfile.
+RUN apt-get update && apt-get install -y npm
+
+# Note that I'll mount a volume during dev so that I see updates.
+COPY . /app/

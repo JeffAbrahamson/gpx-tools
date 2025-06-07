@@ -1,0 +1,30 @@
+name: check title
+
+on:
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [ main ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check-title:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          python-version: "3.12"
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: check commit message
+        id: check-commit
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          echo 'chmod u+x .github/check_commit.py'
+          .github/check_commit.py

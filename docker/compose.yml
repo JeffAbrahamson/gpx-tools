@@ -1,0 +1,26 @@
+services:
+  stravad:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: gpx_stravad
+    command: >
+      sh -c "
+      . /home/dev/venv/bin/activate &&
+      echo stravad would run here.
+    volumes:
+      - ..:/app
+
+  test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.testing
+    image: gpx_test
+    command: >
+      sh -c "
+      rm -f */flycheck_*.py &&
+      black --check --verbose --line-length 79 --extend-exclude 'migrations|media|__pycache__|node_modules|venv' . &&
+      flake8 --tee --output-file flake8.report --exclude=__pycache__,migrations,media,node_modules,venv &&
+      true"
+    volumes:
+      - ..:/app

@@ -1,0 +1,26 @@
+name: Lint
+
+on:
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Setup Python
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ["3.12", '3.13']
+      - name: Install linters
+        run: |
+          pip install --upgrade pip
+          pip install black==25.1
+          pip install flake8==7.2.0
+      - name: Run linters
+        continue-on-error: false
+        run: |
+          black --check --verbose --line-length 79 --extend-exclude migrations .
+          flake8 --tee --output-file flake8.report --exclude=__pycache__,migrations

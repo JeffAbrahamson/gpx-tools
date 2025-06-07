@@ -1,0 +1,13 @@
+{
+  "rate_limit_per_hour": 100,
+  "users": [
+    {
+      "name": "alice",
+      "access_token": "ya29.a0AfH6SMByExampleToken1"
+    },
+    {
+      "name": "bob",
+      "access_token": "ya29.a0AfH6SMByExampleToken2"
+    }
+  ]
+}
