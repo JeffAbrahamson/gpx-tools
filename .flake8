@@ -1,0 +1,15 @@
+[flake8]
+max-line-length = 120
+extend-ignore =
+    B902,
+    CCR001,
+    CNL100,
+    D100,
+    D101,
+    D102,
+    D103,
+    D107,
+    D202,
+    I100,
+    W391
+
