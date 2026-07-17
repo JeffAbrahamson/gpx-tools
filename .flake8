@@ -1,5 +1,9 @@
 [flake8]
 max-line-length = 120
+exclude =
+    .git,
+    __pycache__,
+    venv
 extend-ignore =
     B902,
     CCR001,
@@ -12,4 +16,3 @@ extend-ignore =
     D202,
     I100,
     W391
-
