@@ -17,28 +17,26 @@ import json
 import os
 import sqlite3
 import sys
-import time
-from datetime import datetime
 
 import requests
 
 STRAVA_API_BASE = "https://www.strava.com/api/v3"
+DEFAULT_PER_PAGE = 200
+DEFAULT_REQUEST_TIMEOUT = 30
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Strava ride data sync daemon."
-    )
-    parser.add_argument(
-        "--db", type=str, help="SQLite3 database file", required=True
-    )
+    parser = argparse.ArgumentParser(description="Strava ride data sync daemon.")
+    parser.add_argument("--db", type=str, help="SQLite3 database file", required=True)
     parser.add_argument(
         "--init",
         action="store_true",
         help="Initialize new database (requires --db)",
     )
     parser.add_argument(
-        "--config", type=str, help="Path to config JSON file", required=True
+        "--config",
+        type=str,
+        help="Path to config JSON file",
     )
     return parser.parse_args()
 
@@ -52,14 +50,14 @@ def init_db(db_path):
     c.execute(
         """
         CREATE TABLE rides (
-            id INTEGER PRIMARY KEY,
-            user TEXT,
-            name TEXT,
-            start_date TEXT,
-            distance REAL,
-            moving_time INTEGER,
-            elapsed_time INTEGER,
-            UNIQUE(id, user)
+            id INTEGER NOT NULL,
+            user TEXT NOT NULL,
+            name TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            distance REAL NOT NULL,
+            moving_time INTEGER NOT NULL,
+            elapsed_time INTEGER NOT NULL,
+            PRIMARY KEY (user, id)
         )
     """
     )
@@ -71,9 +69,29 @@ def init_db(db_path):
 def load_config(config_path):
     with open(config_path, "r") as f:
         config = json.load(f)
-    # Basic validation
-    if "users" not in config or "rate_limit_per_hour" not in config:
+
+    if not isinstance(config.get("users"), list):
+        raise ValueError("Invalid config: users must be a list.")
+    for index, user in enumerate(config["users"], start=1):
+        if not user.get("name") or not user.get("access_token"):
+            raise ValueError(
+                f"Invalid config: user {index} needs name and access_token."
+            )
+
+    if "rate_limit_per_hour" in config and config["rate_limit_per_hour"] <= 0:
+        raise ValueError("Invalid config: rate_limit_per_hour must be positive.")
+    if "per_page" in config and not 1 <= config["per_page"] <= DEFAULT_PER_PAGE:
+        raise ValueError(f"Invalid config: per_page must be 1-{DEFAULT_PER_PAGE}.")
+
+    if "rate_limit_per_hour" not in config:
+        config["rate_limit_per_hour"] = 1000
+    if "per_page" not in config:
+        config["per_page"] = DEFAULT_PER_PAGE
+    if "request_timeout" not in config:
+        config["request_timeout"] = DEFAULT_REQUEST_TIMEOUT
+    if config["request_timeout"] <= 0:
         raise ValueError("Invalid config format.")
+
     return config
 
 
@@ -83,39 +101,82 @@ def get_existing_ride_ids(conn, user):
     return set(row[0] for row in c.fetchall())
 
 
-def fetch_rides(user_token, after=None):
+def fetch_rides_page(
+    user_token,
+    *,
+    page,
+    per_page=DEFAULT_PER_PAGE,
+    after=None,
+    before=None,
+    timeout=DEFAULT_REQUEST_TIMEOUT,
+):
     headers = {"Authorization": f"Bearer {user_token}"}
-    params = {"per_page": 50}
+    params = {"page": page, "per_page": per_page}
     if after:
         params["after"] = int(after.timestamp())
+    if before:
+        params["before"] = int(before.timestamp())
     response = requests.get(
-        f"{STRAVA_API_BASE}/athlete/activities", headers=headers, params=params
+        f"{STRAVA_API_BASE}/athlete/activities",
+        headers=headers,
+        params=params,
+        timeout=timeout,
     )
     response.raise_for_status()
     return response.json()
 
 
+def fetch_rides(
+    user_token,
+    *,
+    after=None,
+    before=None,
+    per_page=DEFAULT_PER_PAGE,
+    max_requests=None,
+    timeout=DEFAULT_REQUEST_TIMEOUT,
+):
+    rides = []
+    requests_made = 0
+    page = 1
+
+    while max_requests is None or requests_made < max_requests:
+        page_rides = fetch_rides_page(
+            user_token,
+            page=page,
+            per_page=per_page,
+            after=after,
+            before=before,
+            timeout=timeout,
+        )
+        requests_made += 1
+        if not page_rides:
+            break
+        rides.extend(page_rides)
+        page += 1
+
+    return rides, requests_made
+
+
 def save_rides(conn, rides, user):
     c = conn.cursor()
     for ride in rides:
-        try:
-            c.execute(
-                """
-                INSERT OR IGNORE INTO rides (id, user, name, start_date, distance, moving_time, elapsed_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    ride["id"],
-                    user,
-                    ride["name"],
-                    ride["start_date"],
-                    ride["distance"],
-                    ride["moving_time"],
-                    ride["elapsed_time"],
-                ),
+        c.execute(
+            """
+            INSERT OR IGNORE INTO rides (
+                id, user, name, start_date, distance, moving_time, elapsed_time
             )
-        except sqlite3.IntegrityError:
-            continue
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                ride["id"],
+                user,
+                ride["name"],
+                ride["start_date"],
+                ride["distance"],
+                ride["moving_time"],
+                ride["elapsed_time"],
+            ),
+        )
     conn.commit()
 
 
@@ -128,6 +189,10 @@ def main():
             sys.exit(1)
         init_db(args.db)
         return
+
+    if not args.config:
+        print("Error: --config is required unless --init is used.")
+        sys.exit(1)
 
     if not os.path.exists(args.db):
         print("Error: database not found.")
@@ -149,11 +214,17 @@ def main():
 
         try:
             existing_ids = get_existing_ride_ids(conn, user)
-            new_rides = fetch_rides(token)
-            requests_made += 1
+            remaining_requests = max_requests - requests_made
+            fetched_rides, user_requests = fetch_rides(
+                token,
+                per_page=config["per_page"],
+                max_requests=remaining_requests,
+                timeout=config["request_timeout"],
+            )
+            requests_made += user_requests
 
             filtered_rides = [
-                ride for ride in new_rides if ride["id"] not in existing_ids
+                ride for ride in fetched_rides if ride["id"] not in existing_ids
             ]
             print(f"{user}: {len(filtered_rides)} new rides found.")
             save_rides(conn, filtered_rides, user)

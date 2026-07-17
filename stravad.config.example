@@ -1,13 +1,15 @@
 {
   "rate_limit_per_hour": 100,
+  "per_page": 200,
+  "request_timeout": 30,
   "users": [
     {
       "name": "alice",
-      "access_token": "ya29.a0AfH6SMByExampleToken1"
+      "access_token": "strava-access-token-for-alice"
     },
     {
       "name": "bob",
-      "access_token": "ya29.a0AfH6SMByExampleToken2"
+      "access_token": "strava-access-token-for-bob"
     }
   ]
 }
