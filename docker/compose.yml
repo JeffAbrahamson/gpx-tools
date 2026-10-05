@@ -1,3 +1,5 @@
+name: gpx-tools
+
 services:
   stravad:
     build:
